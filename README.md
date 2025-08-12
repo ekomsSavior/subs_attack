@@ -62,6 +62,8 @@ https://another-company.com/contact
 
 One URL per line. Lines starting with `#` are ignored.
 
+Tip: for each website you list make sure to provide the url that lands on the submisson form you want subs_attack to fill.
+
 ### 3)  User-Agent rotation
 
 update the UA list (if needed, its supplied and sufficient) in `user_agents.txt` (repo root), one per line:
