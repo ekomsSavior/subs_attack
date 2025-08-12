@@ -66,7 +66,7 @@ Tip: for each website you list make sure to provide the url that lands on the su
 
 ### 3)  User-Agent rotation
 
-update the UA list (if needed, its supplied and sufficient) in `user_agents.txt` (repo root), one per line:
+update the UA list (if needed) in `user_agents.txt` (repo root), one per line:
 
 ```
 Mozilla/5.0 (...) Chrome/124.0 Safari/537.36
