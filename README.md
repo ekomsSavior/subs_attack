@@ -34,7 +34,7 @@ Repo layout (key files):
 
 ```
 autofill/
-├─ form_autofill.py        # main CLI
+├─ subs_attack.py        # main CLI
 ├─ targets.txt             # your list of websites (one per line)
 └─ user_agents.txt         # UA list (one per line)
 ```
