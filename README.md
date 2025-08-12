@@ -2,11 +2,7 @@
 
 by: ekomsSavior and DA3 https://www.instagram.com/desertapple3
 
-subs_attack is a CLI tool that runs an automated subscription attack and it maps fields by label/name/placeholder, fills what it can, and **skips** any form that’s missing required fields or shows a CAPTCHA / anti-bot wall.
-
-* Browsers: Firefox (default) or Chromium
-* Driver: handled by Selenium; Firefox ESR works out of the box on Kali
-* No CAPTCHAs, no bypassing, no blasting
+subs_attack is a CLI tool that runs an automated subscription.
 
 ---                  
                                                                                                                        
@@ -56,7 +52,7 @@ Have these handy (provide via CLI flags):
 
 ### 2) Target websites list
 
- `targets.txt` is list of subscription attack websites, you can edit this list:
+ `targets.txt` is list of subscription attack websites, you have to edit this list with your prefered sub urls:
 
 ```
 https://example-movers.com/quote
@@ -68,7 +64,7 @@ One URL per line. Lines starting with `#` are ignored.
 
 ### 3)  User-Agent rotation
 
-update the UA list (if needed) in `user_agents.txt` (repo root), one per line:
+update the UA list (if needed, its supplied and sufficient) in `user_agents.txt` (repo root), one per line:
 
 ```
 Mozilla/5.0 (...) Chrome/124.0 Safari/537.36
@@ -109,7 +105,7 @@ python3 form_autofill.py \
 
 subs_attack will:
 
-1. Load each URL,
+1. Load each URL from your edited `targets.txt` 
 2. Skip if a CAPTCHA/anti-bot wall appears,
 3. Find a likely contact/quote form,
 4. Map and fill known fields,
@@ -135,7 +131,7 @@ subs_attack will:
 
 ## Behavior & Guardrails
 
-* One polite attempt per site, first reasonable form only.
+* One polite attempt per site.
 * If a **CAPTCHA/anti-bot wall** is detected (reCAPTCHA, hCaptcha, Turnstile, Cloudflare “Attention required”, etc.), Autofill **logs and skips**.
 * If any **required** fields aren’t confidently mapped/fillable, Autofill **skips**.
 * Small random delays and optional UA rotation are used to behave more like a human and avoid hammering pages.
