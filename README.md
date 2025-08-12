@@ -1,6 +1,6 @@
 # subs_attack — subscription attack tool
 
-by: ekomsSavior and DA3
+by: ekomsSavior and DA3 https://www.instagram.com/desertapple3
 
 subs_attack is a CLI tool that runs an automated subscription attack and it maps fields by label/name/placeholder, fills what it can, and **skips** any form that’s missing required fields or shows a CAPTCHA / anti-bot wall.
 
