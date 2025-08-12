@@ -2,7 +2,7 @@
 
 by: ekomsSavior and DA3 
 
-subs_attack is a CLI tool that runs an automated subscription.
+subs_attack is a CLI tool that runs an automated subscription sign-up attack
 
 ---                  
                                                                                                                        
