@@ -1,6 +1,6 @@
 # subs_attack — subscription attack tool
 
-by: ekomsSavior and DA3 https://www.instagram.com/desertapple3
+by: ekomsSavior and DA3 
 
 subs_attack is a CLI tool that runs an automated subscription.
 
