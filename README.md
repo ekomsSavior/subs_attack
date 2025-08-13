@@ -113,12 +113,13 @@ python3 form_autofill.py \
 
 subs_attack will:
 
-1. Load each URL from your edited `targets.txt` 
-2. Skip if a CAPTCHA/anti-bot wall appears,
-3. Find a likely contact/quote form,
-4. Map and fill known fields,
-5. Submit once if required fields are present (else skip),
-6. Log the outcome to `autofill.log`.
+1.  Route everything thru Tor
+2. Load each URL from your edited `targets.txt` 
+3. Skip if a CAPTCHA/anti-bot wall appears,
+4. Find a likely contact/quote form,
+5. Map and fill known fields,
+6. Submit once if required fields are present (else skip),
+7. Log the outcome to `autofill.log`.
 
 
 ## Important switches
