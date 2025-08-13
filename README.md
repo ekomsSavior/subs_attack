@@ -108,6 +108,11 @@ python3 form_autofill.py \
 
 (If Selenium can’t find a compatible driver on your box, install it: `sudo apt install -y chromium-driver` and rerun. You can also pass explicit paths via `--chromium-binary` and `--chromedriver`.)
 
+### Tor sometimes triggers bot-walls; for non-tor flows, try:
+```bash
+python3 form_autofill.py --browser chromium --no-tor
+```
+
 ---
 
 
@@ -149,6 +154,10 @@ subs_attack will:
 
 ## Troubleshooting
 
+* ** Tor sometimes triggers bot-walls; for legit flows, try:
+```bash
+python3 form_autofill.py --browser chromium --no-tor
+```
 * **“No suitable forms”**: The page may be multi-step, behind JS wizards, or fields are unusual. Try `--no-headless` to inspect, or adjust `--required`.
 * **Chromium driver errors**: Install `chromium-driver` or let Selenium Manager handle it; re-run the command.
 * **State dropdowns**: If your target uses a select box, pass `--state "AZ"` (visible text must match one of the options).
