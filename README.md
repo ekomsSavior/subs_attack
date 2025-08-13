@@ -81,7 +81,7 @@ Autofill will randomly rotate UAs if you pass `--user-agents user_agents.txt`.
 
 ## Run
 
-Start Tor:
+Start Tor (optional, you can skip this step if you dont want tor):
 
 ```bash
 sudo systemctl start tor@default
@@ -102,7 +102,7 @@ python3 subs_attack.py \
 ### Use Chromium instead of Firefox
 
 ```bash
-python3 form_autofill.py \
+python3 subs_attack.py \
   --browser chromium
 ```
 
@@ -110,7 +110,7 @@ python3 form_autofill.py \
 
 ### Tor sometimes triggers bot-walls; for non-tor flows, try:
 ```bash
-python3 form_autofill.py --browser chromium --no-tor
+python3 subs_attack.py --browser chromium --no-tor
 ```
 
 ---
@@ -156,7 +156,7 @@ subs_attack will:
 
 * ** Tor sometimes triggers bot-walls; for legit flows, try:
 ```bash
-python3 form_autofill.py --browser chromium --no-tor
+python3 subs_attack.py --browser chromium --no-tor
 ```
 * **“No suitable forms”**: The page may be multi-step, behind JS wizards, or fields are unusual. Try `--no-headless` to inspect, or adjust `--required`.
 * **Chromium driver errors**: Install `chromium-driver` or let Selenium Manager handle it; re-run the command.
