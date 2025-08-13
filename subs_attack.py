@@ -11,7 +11,7 @@ from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
     TimeoutException, ElementNotInteractableException,
-    WebDriverException, StaleElementReferenceException
+    WebDriverException, StaleElementReferenceException, NoSuchElementException
 )
 from selenium.webdriver.firefox.options import Options as FxOptions
 from selenium.webdriver.chrome.options import Options as ChromeOptions
@@ -33,7 +33,6 @@ def print_banner():
  ░███████  ░██    ░██ ░██    ░██  ░███████               ░███████     ░██       ░██     ░███████  ░██        ░███████     
        ░██ ░██   ░███ ░███   ░██        ░██             ░██   ░██     ░██       ░██    ░██   ░██  ░██    ░██ ░██   ░██    
  ░███████   ░█████░██ ░██░█████   ░███████  ░██████████  ░█████░██     ░████     ░████  ░█████░██  ░███████  ░██    ░██   
-
     """
     print(banner)
 
@@ -52,7 +51,7 @@ FIELD_PATTERNS = {
     "company":     re.compile(r"\bcompany\b|\borganization\b|\borg\b|\bbusiness\b", re.I),
     "notes":       re.compile(r"\bnotes?\b|\bcomments?\b|\bmessage\b", re.I),
 }
-BUTTON_PATTERNS = re.compile(r"\b(submit|send|continue|quote|start|get|next|go|request)\b", re.I)
+BUTTON_PATTERNS = re.compile(r"\b(submit|send|continue|quote|start|get|next|go|request|apply|check|rate|prices?)\b", re.I)
 
 # --------- Data model ---------
 @dataclass
@@ -171,36 +170,31 @@ def ensure_targets() -> List[str]:
 def pick_user_agent(pool: List[str]) -> Optional[str]:
     return random.choice(pool) if pool else None
 
-# --- Engine-aware UA selection (NEW) ---
+# --- Engine-aware UA selection ---
 UA_FIREFOX_PAT        = re.compile(r"\bFirefox/\d+", re.I)
 UA_CHROMIUM_PAT       = re.compile(r"\b(Chrome/\d+|Edg/\d+)\b", re.I)
 UA_SAFARI_DESKTOP_PAT = re.compile(r"\bVersion/\d+(\.\d+)? Safari/\d+\b", re.I)
 UA_IOS_SAFARI_PAT     = re.compile(r"\biPhone|\biPad", re.I)
 
 def pick_engine_compatible_ua(pool: List[str], browser: str) -> Optional[str]:
-    """Prefer UAs that match the actual engine to reduce bot walls and DOM drift."""
     if not pool:
         return None
     b = (browser or "").lower()
-    shuffled = pool[:]  # copy
+    shuffled = pool[:]
     random.shuffle(shuffled)
 
     if b == "firefox":
-        # Prefer Firefox UAs
         for ua in shuffled:
             if UA_FIREFOX_PAT.search(ua):
                 return ua
-        # As a last resort, take anything non-Chromium Safari (rare)
         for ua in shuffled:
             if not UA_CHROMIUM_PAT.search(ua):
                 return ua
         return shuffled[0]
 
-    # Chromium path: prefer Chrome/Edge UAs (not Firefox)
     for ua in shuffled:
         if UA_CHROMIUM_PAT.search(ua) and not UA_FIREFOX_PAT.search(ua):
             return ua
-    # If none found, allow Safari desktop/iOS as fallback (not ideal but better than nothing)
     for ua in shuffled:
         if UA_SAFARI_DESKTOP_PAT.search(ua) or UA_IOS_SAFARI_PAT.search(ua):
             return ua
@@ -226,42 +220,39 @@ def make_driver(browser: str, ua: Optional[str], timeout: int,
         opts.add_argument("--disable-gpu")
         opts.add_argument("--no-sandbox")
         opts.add_argument("--disable-dev-shm-usage")
+        opts.add_argument("--window-size=1366,900")
         if ua:
             opts.add_argument(f"--user-agent={ua}")
         if chromium_binary:
             opts.binary_location = chromium_binary
-        # light stealth
         opts.add_argument("--disable-blink-features=AutomationControlled")
         opts.add_experimental_option("excludeSwitches", ["enable-automation"])
         opts.add_experimental_option("useAutomationExtension", False)
-
-        # Tor via SOCKS5
         if use_tor:
             opts.add_argument(f"--proxy-server=socks5://{tor_host}:{tor_port}")
 
         drv = webdriver.Chrome(options=opts)
         drv.set_page_load_timeout(timeout)
-        drv.implicitly_wait(2)
+        drv.implicitly_wait(3)
         return drv
 
-    # default: firefox
     fx = FxOptions()
     fx.add_argument("--headless")
+    fx.set_preference("layout.css.devPixelsPerPx", "1.0")
     if ua:
         fx.set_preference("general.useragent.override", ua)
     fx.set_preference("dom.webdriver.enabled", False)
-
     if use_tor:
-        # SOCKS5 proxy w/ remote DNS
-        fx.set_preference("network.proxy.type", 1)  # manual
+        fx.set_preference("network.proxy.type", 1)
         fx.set_preference("network.proxy.socks", tor_host)
         fx.set_preference("network.proxy.socks_port", tor_port)
         fx.set_preference("network.proxy.socks_version", 5)
         fx.set_preference("network.proxy.socks_remote_dns", True)
 
     drv = webdriver.Firefox(options=fx)
+    drv.set_window_size(1366, 900)
     drv.set_page_load_timeout(timeout)
-    drv.implicitly_wait(2)
+    drv.implicitly_wait(3)
     return drv
 
 # --------- CAPTCHA / bot-wall detection ---------
@@ -276,7 +267,7 @@ def page_has_captcha(drv) -> bool:
             src = (f.get_attribute("src") or "") + " " + (f.get_attribute("data-src") or "")
             if CAPTCHA_IFRAME_PAT.search(src):
                 return True
-        html = (drv.page_source or "")[:200000]
+        html = (drv.page_source or "")[:300000]
         if CAPTCHA_TEXT_PAT.search(html):
             return True
     except Exception:
@@ -294,6 +285,77 @@ def cloudflare_blocked(drv) -> bool:
     except Exception:
         pass
     return False
+
+# --------- Helpers: readiness, banners, navigation ----------
+def wait_ready(drv, maxsec=15):
+    try:
+        WebDriverWait(drv, maxsec).until(lambda d: d.execute_script("return document.readyState") == "complete")
+    except TimeoutException:
+        pass
+
+def dismiss_banners(drv):
+    # Common cookie/consent selectors
+    selectors = [
+        "[id*='cookie'] button[aria-label*='accept' i], [id*='cookie'] button:has(span:matches('accept|agree', i))",
+        "button#onetrust-accept-btn-handler, #onetrust-accept-btn-handler",
+        "button[aria-label*='accept' i], button:matches-css(after, 'accept')",
+        "button:contains('Accept'), button:contains('I agree'), button:contains('Got it')",
+        "[class*='cookie'] button:contains('Accept')",
+    ]
+    # Selenium CSS lacks :contains; handle common concrete IDs/classes below:
+    candidates = [
+        "#onetrust-accept-btn-handler",
+        "button[aria-label*='accept' i]",
+        "button[aria-label*='agree' i]",
+        "button[title*='accept' i]",
+        "button:where(.accept,.agree)",
+        "[data-testid='uc-accept-all-button']",
+        "button#truste-consent-button",
+        "button#didomi-notice-agree-button",
+    ]
+    for sel in candidates:
+        try:
+            for el in drv.find_elements(By.CSS_SELECTOR, sel):
+                if el.is_displayed() and el.is_enabled():
+                    el.click()
+                    time.sleep(0.3)
+        except Exception:
+            continue
+
+def maybe_click_pre_nav_cta(drv):
+    # Click things like "Get a Quote", "Request Quote", "Start", etc., to reveal the actual form
+    texts = [
+        "get a quote","request a quote","start quote","start","get started","get rates","free quote",
+        "request info","request information","get my price","get my quote","check price","continue"
+    ]
+    # Try buttons and prominent links
+    try:
+        buttons = drv.find_elements(By.CSS_SELECTOR, "button, a, input[type=button], input[type=submit]")
+        for el in buttons[:80]:
+            try:
+                label = (el.text or "") + " " + (el.get_attribute("aria-label") or "") + " " + (el.get_attribute("value") or "")
+                if any(t in label.lower() for t in texts):
+                    if el.is_displayed() and el.is_enabled():
+                        el.click()
+                        time.sleep(1.2)
+                        return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False
+
+def all_non_captcha_frames(drv):
+    frames = []
+    try:
+        for idx, f in enumerate(drv.find_elements(By.TAG_NAME, "iframe")):
+            src = ((f.get_attribute("src") or "") + " " + (f.get_attribute("data-src") or ""))
+            if CAPTCHA_IFRAME_PAT.search(src):
+                continue
+            frames.append((idx, f))
+    except Exception:
+        pass
+    return frames
 
 # --------- Form logic ---------
 def label_text_for(drv, el) -> str:
@@ -346,7 +408,7 @@ def submit_form(form) -> bool:
         try:
             bt = (b.text or "").strip()
             bname = (b.get_attribute("name") or "") + " " + (b.get_attribute("value") or "")
-            if BUTTON_PATTERNS.search(bt) or BUTTON_PATTERNS.search(bname) or b.tag_name == "input":
+            if BUTTON_PATTERNS.search(bt or "") or BUTTON_PATTERNS.search(bname or "") or b.tag_name == "input":
                 b.click()
                 return True
         except Exception:
@@ -364,105 +426,141 @@ def visible(el) -> bool:
     except Exception:
         return False
 
-def fill_best_form(drv, prof: Profile, required_keys: List[str], per_site_wait: int) -> Tuple[bool,str]:
-    if page_has_captcha(drv) or cloudflare_blocked(drv):
-        return (False, "CAPTCHA or anti-bot wall detected; skipping")
-
-    forms = drv.find_elements(By.TAG_NAME, "form")
-    if not forms:
-        return (False, "No forms found")
-
+def try_fill_in_container(drv, container, prof: Profile, required_keys: List[str]) -> Tuple[bool, Dict[str,str], set]:
     profile_dict = prof.as_dict()
-    for idx, form in enumerate(forms[:3]):  # avoid multi-submit
+    found_map, missing_required = {}, set(required_keys)
+
+    inputs = container.find_elements(By.CSS_SELECTOR, "input, textarea, select")
+    for el in inputs:
         try:
+            if not visible(el):
+                continue
+            tag = el.tag_name.lower()
+            etype = (el.get_attribute("type") or "").lower()
+            attrs = {
+                "name": (el.get_attribute("name") or ""),
+                "id": (el.get_attribute("id") or ""),
+                "placeholder": (el.get_attribute("placeholder") or ""),
+                "aria_label": (el.get_attribute("aria-label") or ""),
+                "type": etype
+            }
+            label_txt = label_text_for(drv, el)
+
+            if tag == "input" and etype in ("submit", "button", "reset", "image", "file", "search"):
+                continue
+
+            target_key = None
+            for key in ("first_name","last_name","full_name","email","phone",
+                        "address1","address2","city","state","zip","company","notes"):
+                if match_field(key, label_txt, attrs):
+                    target_key = key
+                    break
+
+            if not target_key:
+                hay = " ".join([*attrs.values(), label_txt])
+                if re.search(r"\bname\b", hay, re.I) and ("full_name" in profile_dict or "first_name" in profile_dict):
+                    target_key = "full_name" if profile_dict.get("full_name") else "first_name"
+                elif re.search(r"\bmessage|comment|note\b", hay, re.I):
+                    target_key = "notes"
+
+            if not target_key:
+                continue
+
+            value = profile_dict.get(target_key)
+            if not value:
+                if target_key in ("first_name","last_name") and profile_dict.get("full_name"):
+                    parts = profile_dict["full_name"].split()
+                    if target_key == "first_name" and parts:
+                        value = parts[0]
+                    elif target_key == "last_name" and len(parts) > 1:
+                        value = " ".join(parts[1:])
+                else:
+                    continue
+
+            if tag == "select":
+                if not try_select(el, value):
+                    continue
+            else:
+                fill_input(el, value)
+
+            found_map[target_key] = value
+            if target_key in missing_required:
+                missing_required.remove(target_key)
+        except (ElementNotInteractableException, StaleElementReferenceException, NoSuchElementException):
+            continue
+
+    return True, found_map, missing_required
+
+def fill_best_form(drv, prof: Profile, required_keys: List[str], per_site_wait: int) -> Tuple[bool,str]:
+    # Try native <form> first (main doc)
+    forms = drv.find_elements(By.TAG_NAME, "form")
+    if forms:
+        for form in forms[:3]:
             if form.find_elements(By.CSS_SELECTOR, ".g-recaptcha, .h-captcha, #cf-challenge"):
                 continue
-
-            inputs = form.find_elements(By.CSS_SELECTOR, "input, textarea, select")
-            if not inputs:
-                continue
-
-            found_map, missing_required = {}, set(required_keys)
-
-            for el in inputs:
-                if not visible(el):
-                    continue
-                tag = el.tag_name.lower()
-                etype = (el.get_attribute("type") or "").lower()
-                attrs = {
-                    "name": (el.get_attribute("name") or ""),
-                    "id": (el.get_attribute("id") or ""),
-                    "placeholder": (el.get_attribute("placeholder") or ""),
-                    "aria_label": (el.get_attribute("aria-label") or ""),
-                    "type": etype
-                }
-                label_txt = label_text_for(drv, el)
-
-                if tag == "input" and etype in ("submit", "button", "reset", "image", "file", "search"):
-                    continue
-
-                target_key = None
-                for key in ("first_name","last_name","full_name","email","phone",
-                            "address1","address2","city","state","zip","company","notes"):
-                    if match_field(key, label_txt, attrs):
-                        target_key = key
-                        break
-
-                if not target_key:
-                    hay = " ".join([*attrs.values(), label_txt])
-                    if re.search(r"\bname\b", hay, re.I) and ("full_name" in profile_dict or "first_name" in profile_dict):
-                        target_key = "full_name" if profile_dict.get("full_name") else "first_name"
-                    elif re.search(r"\bmessage|comment|note\b", hay, re.I):
-                        target_key = "notes"
-
-                if not target_key:
-                    continue
-
-                value = profile_dict.get(target_key)
-                if not value:
-                    if target_key in ("first_name","last_name") and profile_dict.get("full_name"):
-                        parts = profile_dict["full_name"].split()
-                        if target_key == "first_name" and parts:
-                            value = parts[0]
-                        elif target_key == "last_name" and len(parts) > 1:
-                            value = " ".join(parts[1:])
-                    else:
-                        continue
-
-                try:
-                    if tag == "select":
-                        if not try_select(el, value):
-                            continue
-                    else:
-                        fill_input(el, value)
-                    found_map[target_key] = value
-                    if target_key in missing_required:
-                        missing_required.remove(target_key)
-                except (ElementNotInteractableException, StaleElementReferenceException):
-                    continue
-
+            _, found_map, missing_required = try_fill_in_container(drv, form, prof, required_keys)
             if missing_required:
                 continue
-
             if page_has_captcha(drv) or cloudflare_blocked(drv):
                 return (False, "CAPTCHA appeared pre-submit; skipping")
+            if submit_form(form):
+                url_before = drv.current_url
+                try:
+                    WebDriverWait(drv, 8).until(EC.url_changes(url_before))
+                    return (True, "Submitted (URL changed).")
+                except TimeoutException:
+                    page_text = (drv.page_source or "")[:30000]
+                    if re.search(r"(thank you|thanks|received|we'?ll be in touch|success|submitted)", page_text, re.I):
+                        return (True, "Submitted (confirmation text).")
+                    time.sleep(2)
+                    return (True, "Submitted (no confirmation detected).")
 
-            clicked = submit_form(form)
-            if not clicked:
-                continue
-
-            url_before = drv.current_url
-            try:
-                WebDriverWait(drv, 6).until(EC.url_changes(url_before))
-                return (True, "Submitted (URL changed).")
-            except TimeoutException:
-                page_text = (drv.page_source or "")[:20000]
-                if re.search(r"(thank you|thanks|received|we'll be in touch|success)", page_text, re.I):
-                    return (True, "Submitted (confirmation text).")
-                time.sleep(2)
-                return (True, "Submitted (no confirmation detected).")
+    # Next, scan safe iframes for forms
+    frames = all_non_captcha_frames(drv)
+    for idx, frame in frames[:4]:
+        try:
+            drv.switch_to.frame(frame)
+            inner_forms = drv.find_elements(By.TAG_NAME, "form")
+            for form in inner_forms[:2]:
+                if form.find_elements(By.CSS_SELECTOR, ".g-recaptcha, .h-captcha, #cf-challenge"):
+                    continue
+                _, found_map, missing_required = try_fill_in_container(drv, form, prof, required_keys)
+                if missing_required:
+                    continue
+                if page_has_captcha(drv) or cloudflare_blocked(drv):
+                    drv.switch_to.default_content()
+                    return (False, "CAPTCHA appeared pre-submit; skipping")
+                if submit_form(form):
+                    drv.switch_to.default_content()
+                    return (True, "Submitted (iframe form).")
         except Exception:
-            continue
+            pass
+        finally:
+            try:
+                drv.switch_to.default_content()
+            except Exception:
+                pass
+
+    # Fallback: page-level fill (no <form>): fill visible inputs and click a submit-like button
+    filled_any, found_map, missing_required = try_fill_in_container(drv, drv, prof, required_keys)
+    if filled_any and not missing_required:
+        # Click a visible button with submit-like intent
+        try:
+            buttons = drv.find_elements(By.CSS_SELECTOR, "button, input[type=submit], a")
+            for b in buttons[:80]:
+                label = (b.text or "") + " " + (b.get_attribute("aria-label") or "") + " " + (b.get_attribute("value") or "")
+                if BUTTON_PATTERNS.search(label or ""):
+                    if visible(b):
+                        b.click()
+                        time.sleep(1.5)
+                        page_text = (drv.page_source or "")[:30000]
+                        if re.search(r"(thank you|thanks|received|we'?ll be in touch|success|submitted)", page_text, re.I):
+                            return (True, "Submitted (no native form; confirmation text).")
+                        if drv.current_url:
+                            return (True, "Submitted (no native form; clicked CTA).")
+        except Exception:
+            pass
+
     return (False, "No suitable forms matched required fields")
 
 # --------- Main ---------
@@ -473,10 +571,10 @@ def main():
     # Optional power flags (identity & targets are handled automatically)
     ap = argparse.ArgumentParser(description="Polite Form Autofiller (Kali-ready)", add_help=True)
     ap.add_argument("--browser", choices=["firefox","chromium"], default="firefox", help="Browser engine (default: firefox)")
-    ap.add_argument("--timeout", type=int, default=20, help="Page load timeout")
-    ap.add_argument("--per-site-wait", type=int, default=10, help="Seconds to wait post-submit")
-    ap.add_argument("--min-delay", type=float, default=2.5, help="Min delay between sites")
-    ap.add_argument("--max-delay", type=float, default=6.0, help="Max delay between sites")
+    ap.add_argument("--timeout", type=int, default=30, help="Page load timeout")
+    ap.add_argument("--per-site-wait", type=int, default=12, help="Seconds to wait post-submit")
+    ap.add_argument("--min-delay", type=float, default=3.0, help="Min delay between sites")
+    ap.add_argument("--max-delay", type=float, default=7.0, help="Max delay between sites")
     ap.add_argument("--chromium-binary", help="Path to chromium binary (optional)")
     ap.add_argument("--chromedriver", help="Path to chromedriver (optional)")
     # Tor controls (all optional, defaults to auto-detect)
@@ -523,10 +621,8 @@ def main():
 
     ok = skipped = errors = 0
     for i, url in enumerate(urls, 1):
-        # Use engine-aware UA selection
         ua = pick_engine_compatible_ua(ua_pool, ns.browser) if ua_pool else None
         if not ua and ua_pool:
-            # Shouldn't happen, but log just in case
             logging.warning("[UA] No engine-compatible UA found; falling back to random.")
             ua = pick_user_agent(ua_pool)
 
@@ -538,7 +634,8 @@ def main():
         try:
             drv = make_driver(ns.browser, ua=ua, timeout=ns.timeout,
                               use_tor=use_tor, tor_host=ns.tor_host, tor_port=ns.tor_port,
-                              chromium_binary=ns.chromium_binary, chromedriver_path=ns.chromedriver)
+                              chromium_binary=ns.chromium_bianary if hasattr(ns,'chromium_bianary') else ns.chromium_binary,
+                              chromedriver_path=ns.chromedriver)
         except WebDriverException as e:
             logging.error(f"[{label}] WebDriver error: {e}")
             errors += 1
@@ -546,13 +643,20 @@ def main():
 
         try:
             drv.get(url)
+            wait_ready(drv)
+            dismiss_banners(drv)
+
+            # If form is behind CTA, try to click it
+            maybe_click_pre_nav_cta(drv)
+            wait_ready(drv)
+            dismiss_banners(drv)
 
             if page_has_captcha(drv) or cloudflare_blocked(drv):
                 logging.info(f"[{label}] CAPTCHA/anti-bot detected on load; skipping")
                 skipped += 1
             else:
                 try:
-                    WebDriverWait(drv, 8).until(
+                    WebDriverWait(drv, 12).until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, "form, input, textarea, button"))
                     )
                 except TimeoutException:
