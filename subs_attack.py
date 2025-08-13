@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, random, time, sys, os, re, logging, pathlib, json
+import argparse, random, time, sys, os, re, logging, pathlib, json, socket
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -171,10 +171,20 @@ def ensure_targets() -> List[str]:
 def pick_user_agent(pool: List[str]) -> Optional[str]:
     return random.choice(pool) if pool else None
 
+# --------- Tor detection ---------
+def is_tor_listening(host: str, port: int, timeout: float = 0.75) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
 # --------- Browser selection (headless only) ---------
 def make_driver(browser: str, ua: Optional[str], timeout: int,
+                use_tor: bool, tor_host: str, tor_port: int,
                 chromium_binary: Optional[str]=None, chromedriver_path: Optional[str]=None):
     browser = browser.lower()
+
     if browser == "chromium":
         opts = ChromeOptions()
         opts.add_argument("--headless=new")
@@ -185,19 +195,35 @@ def make_driver(browser: str, ua: Optional[str], timeout: int,
             opts.add_argument(f"--user-agent={ua}")
         if chromium_binary:
             opts.binary_location = chromium_binary
+        # light stealth
         opts.add_argument("--disable-blink-features=AutomationControlled")
         opts.add_experimental_option("excludeSwitches", ["enable-automation"])
         opts.add_experimental_option("useAutomationExtension", False)
+
+        # Tor via SOCKS5
+        if use_tor:
+            opts.add_argument(f"--proxy-server=socks5://{tor_host}:{tor_port}")
+
         drv = webdriver.Chrome(options=opts)
         drv.set_page_load_timeout(timeout)
         drv.implicitly_wait(2)
         return drv
 
+    # default: firefox
     fx = FxOptions()
     fx.add_argument("--headless")
     if ua:
         fx.set_preference("general.useragent.override", ua)
     fx.set_preference("dom.webdriver.enabled", False)
+
+    if use_tor:
+        # SOCKS5 proxy w/ remote DNS
+        fx.set_preference("network.proxy.type", 1)  # manual
+        fx.set_preference("network.proxy.socks", tor_host)
+        fx.set_preference("network.proxy.socks_port", tor_port)
+        fx.set_preference("network.proxy.socks_version", 5)
+        fx.set_preference("network.proxy.socks_remote_dns", True)
+
     drv = webdriver.Firefox(options=fx)
     drv.set_page_load_timeout(timeout)
     drv.implicitly_wait(2)
@@ -409,7 +435,7 @@ def main():
     print_banner()
     setup_logger()
 
-    # Optional power flags only (no identity/urls needed)
+    # Optional power flags (identity & targets are handled automatically)
     ap = argparse.ArgumentParser(description="Polite Form Autofiller (Kali-ready)", add_help=True)
     ap.add_argument("--browser", choices=["firefox","chromium"], default="firefox", help="Browser engine (default: firefox)")
     ap.add_argument("--timeout", type=int, default=20, help="Page load timeout")
@@ -418,6 +444,11 @@ def main():
     ap.add_argument("--max-delay", type=float, default=6.0, help="Max delay between sites")
     ap.add_argument("--chromium-binary", help="Path to chromium binary (optional)")
     ap.add_argument("--chromedriver", help="Path to chromedriver (optional)")
+    # Tor controls (all optional, defaults to auto-detect)
+    ap.add_argument("--tor", action="store_true", help="Force Tor (error if not listening on host/port)")
+    ap.add_argument("--no-tor", action="store_true", help="Disable Tor even if detected")
+    ap.add_argument("--tor-host", default="127.0.0.1", help="Tor SOCKS host (default: 127.0.0.1)")
+    ap.add_argument("--tor-port", type=int, default=9050, help="Tor SOCKS port (default: 9050)")
     ns = ap.parse_args()
 
     # Targets
@@ -435,16 +466,37 @@ def main():
     else:
         logging.info("[Init] No user_agents.txt found. Using browser default UA.")
 
+    # Tor mode
+    tor_available = is_tor_listening(ns.tor_host, ns.tor_port)
+    if ns.no_tor:
+        use_tor = False
+        logging.info("[Init] Tor disabled by flag.")
+    elif ns.tor:
+        if not tor_available:
+            logging.error(f"[Init] --tor requested but no Tor at {ns.tor_host}:{ns.tor_port}. Start Tor or adjust --tor-host/--tor-port.")
+            sys.exit(1)
+        use_tor = True
+        logging.info(f"[Init] Tor enabled (forced) via SOCKS5 {ns.tor_host}:{ns.tor_port}")
+    else:
+        use_tor = tor_available
+        if use_tor:
+            logging.info(f"[Init] Tor detected; routing via SOCKS5 {ns.tor_host}:{ns.tor_port}")
+        else:
+            logging.info("[Init] Tor not detected; connecting directly.")
+
     required_keys = ["email", "phone"]  # sensible default
 
     ok = skipped = errors = 0
     for i, url in enumerate(urls, 1):
         ua = pick_user_agent(ua_pool)
         label = urlparse(url).netloc or url
-        logging.info(f"[{i}/{total}] Visiting {url} | {ns.browser} | UA={ua or 'default'}")
+        ua_lab = ua or "default"
+        net_lab = "Tor" if use_tor else "Direct"
+        logging.info(f"[{i}/{total}] Visiting {url} | {ns.browser} | UA={ua_lab} | Net={net_lab}")
 
         try:
             drv = make_driver(ns.browser, ua=ua, timeout=ns.timeout,
+                              use_tor=use_tor, tor_host=ns.tor_host, tor_port=ns.tor_port,
                               chromium_binary=ns.chromium_binary, chromedriver_path=ns.chromedriver)
         except WebDriverException as e:
             logging.error(f"[{label}] WebDriver error: {e}")
