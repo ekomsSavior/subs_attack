@@ -2,7 +2,7 @@
 
 by: ekomsSavior and DA3 
 
-subs_attack is a CLI tool that runs an automated subscription sign-up attack
+subs_attack is a CLI tool that runs an automated subscription sign-up attack that is routed thru tor.
 
 ---                  
                                                                                                                        
@@ -16,8 +16,7 @@ sudo apt update && sudo apt install -y tor firefox-esr chromium python3-pip wget
 pip3 install --break-system-packages --upgrade selenium
 ```
 
-> Firefox ESR is the default path. Chromium support is available; if your Chromium needs a driver, Selenium will attempt to manage it automatically. If you prefer the distro driver: `sudo apt install -y chromium-driver`.
-
+> Firefox is the default path. Chromium support is available; if your Chromium needs a driver, Selenium will attempt to manage it automatically. 
 ---
 
 ## Clone
