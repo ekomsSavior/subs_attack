@@ -2,7 +2,8 @@
 
 by: ekomsSavior and DA3 
 
-subs_attack is a CLI tool that runs an automated subscription sign-up attack that is routed thru tor.
+subs_attack is a CLI tool that runs an automated subscription sign-up attack.
+This tool supports Tor routing.
 
 ---                  
                                                                                                                        
