@@ -12,7 +12,7 @@ subs_attack is a CLI tool that runs an automated subscription sign-up attack
 ## Install 
 
 ```bash
-sudo apt update && sudo apt install -y firefox-esr chromium python3-pip wget tar curl
+sudo apt update && sudo apt install -y firefox-esr tor chromium python3-pip wget tar curl
 pip3 install --break-system-packages --upgrade selenium
 ```
 
@@ -81,6 +81,12 @@ Autofill will randomly rotate UAs if you pass `--user-agents user_agents.txt`.
 
 ## Run
 
+Start Tor:
+
+```bash
+sudo systemctl start tor@default
+```
+run subs_attack:
 
 ```bash
 python3 subs_attack.py
