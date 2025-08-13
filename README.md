@@ -12,7 +12,7 @@ subs_attack is a CLI tool that runs an automated subscription sign-up attack
 ## Install 
 
 ```bash
-sudo apt update && sudo apt install -y firefox-esr tor chromium python3-pip wget tar curl
+sudo apt update && sudo apt install -y tor firefox-esr chromium python3-pip wget tar curl
 pip3 install --break-system-packages --upgrade selenium
 ```
 
