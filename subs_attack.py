@@ -171,6 +171,41 @@ def ensure_targets() -> List[str]:
 def pick_user_agent(pool: List[str]) -> Optional[str]:
     return random.choice(pool) if pool else None
 
+# --- Engine-aware UA selection (NEW) ---
+UA_FIREFOX_PAT        = re.compile(r"\bFirefox/\d+", re.I)
+UA_CHROMIUM_PAT       = re.compile(r"\b(Chrome/\d+|Edg/\d+)\b", re.I)
+UA_SAFARI_DESKTOP_PAT = re.compile(r"\bVersion/\d+(\.\d+)? Safari/\d+\b", re.I)
+UA_IOS_SAFARI_PAT     = re.compile(r"\biPhone|\biPad", re.I)
+
+def pick_engine_compatible_ua(pool: List[str], browser: str) -> Optional[str]:
+    """Prefer UAs that match the actual engine to reduce bot walls and DOM drift."""
+    if not pool:
+        return None
+    b = (browser or "").lower()
+    shuffled = pool[:]  # copy
+    random.shuffle(shuffled)
+
+    if b == "firefox":
+        # Prefer Firefox UAs
+        for ua in shuffled:
+            if UA_FIREFOX_PAT.search(ua):
+                return ua
+        # As a last resort, take anything non-Chromium Safari (rare)
+        for ua in shuffled:
+            if not UA_CHROMIUM_PAT.search(ua):
+                return ua
+        return shuffled[0]
+
+    # Chromium path: prefer Chrome/Edge UAs (not Firefox)
+    for ua in shuffled:
+        if UA_CHROMIUM_PAT.search(ua) and not UA_FIREFOX_PAT.search(ua):
+            return ua
+    # If none found, allow Safari desktop/iOS as fallback (not ideal but better than nothing)
+    for ua in shuffled:
+        if UA_SAFARI_DESKTOP_PAT.search(ua) or UA_IOS_SAFARI_PAT.search(ua):
+            return ua
+    return shuffled[0]
+
 # --------- Tor detection ---------
 def is_tor_listening(host: str, port: int, timeout: float = 0.75) -> bool:
     try:
@@ -488,7 +523,13 @@ def main():
 
     ok = skipped = errors = 0
     for i, url in enumerate(urls, 1):
-        ua = pick_user_agent(ua_pool)
+        # Use engine-aware UA selection
+        ua = pick_engine_compatible_ua(ua_pool, ns.browser) if ua_pool else None
+        if not ua and ua_pool:
+            # Shouldn't happen, but log just in case
+            logging.warning("[UA] No engine-compatible UA found; falling back to random.")
+            ua = pick_user_agent(ua_pool)
+
         label = urlparse(url).netloc or url
         ua_lab = ua or "default"
         net_lab = "Tor" if use_tor else "Direct"
